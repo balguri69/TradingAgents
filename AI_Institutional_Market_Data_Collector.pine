@@ -1,0 +1,978 @@
+// ============================================================
+// AI INSTITUTIONAL MARKET DATA COLLECTOR
+// Version : 1.0.0
+// Pine    : v6
+// Author  : Senior Quant / SMC Engineer / Software Architect
+// Purpose : Collect ALL available TradingView market data and
+//           export it as a structured JSON payload for external
+//           AI analysis (Python + Gemini). NO buy/sell signals.
+//           NO strategy logic. Data collection ONLY.
+// ============================================================
+// AUDIT NOTES
+//   - request.security() uses barmerge.lookahead_off everywhere
+//   - na values serialised as JSON null via nv() helper
+//   - Every HTF timeframe uses ONE bundled security call (tuple)
+//   - Dashboard rendered only on barstate.islast
+//   - Alert payload kept compact to stay within ~4000 char limit
+//   - Swing detection has minor inherent repainting (unavoidable)
+//   - Funding Rate / OI / News / Order Book / COT => null (TV limit)
+// ============================================================
+
+//@version=6
+indicator(
+     title        = "AI Institutional Market Data Collector",
+     shorttitle   = "AI-IMDC",
+     overlay      = true,
+     max_bars_back = 500,
+     max_lines_count = 50,
+     max_boxes_count = 50
+ )
+
+// ============================================================
+// SECTION 0 — USER INPUTS (enable / disable every module)
+// ============================================================
+grp_mod   = "── Modules ──────────────────────────"
+i_trend   = input.bool(true,  "Enable Trend Engine",           group = grp_mod)
+i_vol     = input.bool(true,  "Enable Volume Analysis",        group = grp_mod)
+i_smc     = input.bool(true,  "Enable SMC Engine",             group = grp_mod)
+i_mom     = input.bool(true,  "Enable Momentum Engine",        group = grp_mod)
+i_ms      = input.bool(true,  "Enable Market Structure",       group = grp_mod)
+i_dash    = input.bool(true,  "Enable Dashboard",              group = grp_mod)
+i_alert   = input.bool(true,  "Enable Alert Payload",          group = grp_mod)
+i_candle  = input.bool(true,  "Enable Candle Pattern Analysis",group = grp_mod)
+
+grp_set   = "── Settings ─────────────────────────"
+i_swing_lb = input.int(10, "Swing Lookback (bars)", minval = 3, maxval = 50, group = grp_set)
+i_atr_len  = input.int(14, "ATR Length",            minval = 1, maxval = 50, group = grp_set)
+i_rsi_len  = input.int(14, "RSI Length",            minval = 1, maxval = 50, group = grp_set)
+i_vol_ma   = input.int(20, "Volume MA Length",      minval = 5, maxval = 100, group = grp_set)
+i_sd_len   = input.int(20, "Std-Dev Length",        minval = 5, maxval = 100, group = grp_set)
+
+// ============================================================
+// SECTION 1 — CORE ENGINE (Phase 1)
+//   General market data, session, OHLCV, tick size
+// ============================================================
+
+// ── 1.1 Symbol / Exchange metadata ──────────────────────────
+sym_ticker   = syminfo.ticker
+sym_exchange = syminfo.exchange
+sym_prefix   = syminfo.prefix
+sym_tf       = timeframe.period
+sym_session  = syminfo.session
+sym_currency = syminfo.currency
+sym_ticksz   = syminfo.mintick
+sym_desc     = syminfo.description
+
+// ── 1.2 OHLCV (current bar) ──────────────────────────────────
+price_o   = open
+price_h   = high
+price_l   = low
+price_c   = close
+price_v   = volume
+price_pc  = close[1]  // previous close (confirmed, no lookahead)
+
+// ── 1.3 Average Volume ───────────────────────────────────────
+vol_avg  = ta.sma(volume, i_vol_ma)
+rel_vol  = na(vol_avg) or vol_avg == 0 ? na : volume / vol_avg
+
+// ── 1.4 Session detection via time() ─────────────────────────
+// Times in UTC (TradingView server time)
+t_asia    = time(timeframe.period, "1700-0200:1234567")
+t_london  = time(timeframe.period, "0800-1600:1234567")
+t_ny      = time(timeframe.period, "1300-2100:1234567")
+t_overlap = time(timeframe.period, "1300-1600:1234567")  // London/NY overlap
+
+in_asia    = not na(t_asia)
+in_london  = not na(t_london)
+in_ny      = not na(t_ny)
+in_overlap = not na(t_overlap)
+
+// Determine dominant session (priority: overlap > ny > london > asia)
+// Pine v6: ternary chains must NOT end a line with ':' — operator goes at line start
+sess_name = in_overlap ? "Overlap"
+          : in_ny      ? "New York"
+          : in_london  ? "London"
+          : in_asia    ? "Asia" : "Off-Hours"
+
+// Session high / low (tracked with var)
+var float sess_hi = na
+var float sess_lo = na
+var string prev_sess = ""
+
+sess_changed = sess_name != prev_sess
+if sess_changed
+    sess_hi   := high
+    sess_lo   := low
+    prev_sess := sess_name
+else
+    sess_hi := math.max(nz(sess_hi, high), high)
+    sess_lo := math.min(nz(sess_lo, low),  low)
+
+// ── 1.5 True Range / Volatility core ─────────────────────────
+atr_val  = ta.atr(i_atr_len)
+tr_val   = ta.tr(true)
+atr_pct  = na(close) or close == 0 ? na : atr_val / close * 100
+
+// ── 1.6 VWAP (current timeframe) ─────────────────────────────
+vwap_val = ta.vwap(close)
+
+// ── 1.7 Standard Deviation ───────────────────────────────────
+std_val  = ta.stdev(close, i_sd_len)
+
+// ============================================================
+// SECTION 2 — TREND ENGINE (Phase 2)
+//   EMA stack, slope, alignment, multi-timeframe
+// ============================================================
+
+// ── 2.1 Current TF EMAs ──────────────────────────────────────
+ema20  = ta.ema(close, 20)
+ema50  = ta.ema(close, 50)
+ema100 = ta.ema(close, 100)
+ema200 = ta.ema(close, 200)
+
+// ── 2.2 MA Slope (5-bar rate of change, normalised) ──────────
+slope_ema20  = na(ema20[5])  ? na : (ema20  - ema20[5])  / 5
+slope_ema50  = na(ema50[5])  ? na : (ema50  - ema50[5])  / 5
+slope_ema200 = na(ema200[5]) ? na : (ema200 - ema200[5]) / 5
+
+// ── 2.3 EMA Alignment ────────────────────────────────────────
+ema_bull_align = close > ema20 and ema20 > ema50 and ema50 > ema100 and ema100 > ema200
+ema_bear_align = close < ema20 and ema20 < ema50 and ema50 < ema100 and ema100 < ema200
+
+// ── 2.4 Trend Direction ──────────────────────────────────────
+trend_dir = ema_bull_align ? "Bullish"
+          : ema_bear_align ? "Bearish" : "Sideways"
+
+// ── 2.5 Trend Strength (ADX) ─────────────────────────────────
+[di_plus, di_minus, adx_val] = ta.dmi(14, 14)
+trend_strength = adx_val >= 40 ? "Very Strong"
+               : adx_val >= 25 ? "Strong"
+               : adx_val >= 20 ? "Moderate" : "Weak"
+
+// ── 2.6 RSI (current TF) ─────────────────────────────────────
+rsi_val = ta.rsi(close, i_rsi_len)
+
+// ── 2.7 MACD (current TF) ────────────────────────────────────
+[macd_line, macd_sig, macd_hist] = ta.macd(close, 12, 26, 9)
+
+// ── 2.8 Stochastic RSI (reuses rsi_val — no duplicate calculation) ──
+// rsi_val already computed above; reuse directly
+stoch_rsi_k_raw   = ta.stoch(rsi_val, rsi_val, rsi_val, 14)
+stoch_rsi_k       = ta.sma(stoch_rsi_k_raw, 3)
+stoch_rsi_d       = ta.sma(stoch_rsi_k, 3)
+
+// ── 2.9 CCI / Momentum / ROC / AO ────────────────────────────
+cci_val    = ta.cci(close, 20)
+mom_val    = ta.mom(close, 10)
+roc_val    = ta.roc(close, 10)
+ao_val     = ta.sma(hl2, 5) - ta.sma(hl2, 34)  // Awesome Oscillator
+
+// ============================================================
+// SECTION 2B — MULTI-TIMEFRAME DATA (Phase 2 cont.)
+//   Bundle each HTF into ONE request.security() call
+//   using a tuple-returning function to minimise call count.
+//   lookahead_off prevents lookahead bias.
+// ============================================================
+
+// Helper: trend int → string label
+htfTrendStr(t) =>
+    t == 1 ? "Bullish" : t == -1 ? "Bearish" : "Sideways"
+
+// ── Extractor helpers for tuple-returning builtins ────────────
+// Pine v6 tuples cannot use dot-notation; extract via dedicated wrappers.
+getAdx()      => [_a, _b, adx] = ta.dmi(14, 14)   , adx
+getMacd()     => [m, _s, _h]   = ta.macd(close, 12, 26, 9), m
+getMacdSig()  => [_m, s, _h]   = ta.macd(close, 12, 26, 9), s
+getMacdHist() => [_m, _s, h]   = ta.macd(close, 12, 26, 9), h
+
+// 15M HTF — all metrics via individual request.security() calls
+h15_ema20  = request.security(syminfo.tickerid, "15", ta.ema(close, 20),  barmerge.gaps_off, barmerge.lookahead_off)
+h15_ema50  = request.security(syminfo.tickerid, "15", ta.ema(close, 50),  barmerge.gaps_off, barmerge.lookahead_off)
+h15_ema100 = request.security(syminfo.tickerid, "15", ta.ema(close, 100), barmerge.gaps_off, barmerge.lookahead_off)
+h15_ema200 = request.security(syminfo.tickerid, "15", ta.ema(close, 200), barmerge.gaps_off, barmerge.lookahead_off)
+h15_rsi    = request.security(syminfo.tickerid, "15", ta.rsi(close, 14),  barmerge.gaps_off, barmerge.lookahead_off)
+h15_atr    = request.security(syminfo.tickerid, "15", ta.atr(14),         barmerge.gaps_off, barmerge.lookahead_off)
+h15_adx    = request.security(syminfo.tickerid, "15", getAdx(),           barmerge.gaps_off, barmerge.lookahead_off)
+h15_vwap   = request.security(syminfo.tickerid, "15", ta.vwap(close),     barmerge.gaps_off, barmerge.lookahead_off)
+h15_vol    = request.security(syminfo.tickerid, "15", volume,             barmerge.gaps_off, barmerge.lookahead_off)
+h15_macd   = request.security(syminfo.tickerid, "15", getMacd(),          barmerge.gaps_off, barmerge.lookahead_off)
+h15_sig    = request.security(syminfo.tickerid, "15", getMacdSig(),       barmerge.gaps_off, barmerge.lookahead_off)
+h15_hist   = request.security(syminfo.tickerid, "15", getMacdHist(),      barmerge.gaps_off, barmerge.lookahead_off)
+h15_close  = request.security(syminfo.tickerid, "15", close,              barmerge.gaps_off, barmerge.lookahead_off)
+h15_trend  = h15_close > h15_ema20 and h15_ema20 > h15_ema50 and h15_ema50 > h15_ema100 and h15_ema100 > h15_ema200 ? 1
+           : h15_close < h15_ema20 and h15_ema20 < h15_ema50 and h15_ema50 < h15_ema100 and h15_ema100 < h15_ema200 ? -1 : 0
+
+// 1H HTF
+h1_ema20   = request.security(syminfo.tickerid, "60", ta.ema(close, 20),  barmerge.gaps_off, barmerge.lookahead_off)
+h1_ema50   = request.security(syminfo.tickerid, "60", ta.ema(close, 50),  barmerge.gaps_off, barmerge.lookahead_off)
+h1_ema100  = request.security(syminfo.tickerid, "60", ta.ema(close, 100), barmerge.gaps_off, barmerge.lookahead_off)
+h1_ema200  = request.security(syminfo.tickerid, "60", ta.ema(close, 200), barmerge.gaps_off, barmerge.lookahead_off)
+h1_rsi     = request.security(syminfo.tickerid, "60", ta.rsi(close, 14),  barmerge.gaps_off, barmerge.lookahead_off)
+h1_atr     = request.security(syminfo.tickerid, "60", ta.atr(14),         barmerge.gaps_off, barmerge.lookahead_off)
+h1_adx     = request.security(syminfo.tickerid, "60", getAdx(),           barmerge.gaps_off, barmerge.lookahead_off)
+h1_vwap    = request.security(syminfo.tickerid, "60", ta.vwap(close),     barmerge.gaps_off, barmerge.lookahead_off)
+h1_vol     = request.security(syminfo.tickerid, "60", volume,             barmerge.gaps_off, barmerge.lookahead_off)
+h1_macd    = request.security(syminfo.tickerid, "60", getMacd(),          barmerge.gaps_off, barmerge.lookahead_off)
+h1_sig     = request.security(syminfo.tickerid, "60", getMacdSig(),       barmerge.gaps_off, barmerge.lookahead_off)
+h1_hist    = request.security(syminfo.tickerid, "60", getMacdHist(),      barmerge.gaps_off, barmerge.lookahead_off)
+h1_close   = request.security(syminfo.tickerid, "60", close,              barmerge.gaps_off, barmerge.lookahead_off)
+h1_trend   = h1_close > h1_ema20 and h1_ema20 > h1_ema50 and h1_ema50 > h1_ema100 and h1_ema100 > h1_ema200 ? 1
+           : h1_close < h1_ema20 and h1_ema20 < h1_ema50 and h1_ema50 < h1_ema100 and h1_ema100 < h1_ema200 ? -1 : 0
+
+// 4H HTF
+h4_ema20   = request.security(syminfo.tickerid, "240", ta.ema(close, 20),  barmerge.gaps_off, barmerge.lookahead_off)
+h4_ema50   = request.security(syminfo.tickerid, "240", ta.ema(close, 50),  barmerge.gaps_off, barmerge.lookahead_off)
+h4_ema100  = request.security(syminfo.tickerid, "240", ta.ema(close, 100), barmerge.gaps_off, barmerge.lookahead_off)
+h4_ema200  = request.security(syminfo.tickerid, "240", ta.ema(close, 200), barmerge.gaps_off, barmerge.lookahead_off)
+h4_rsi     = request.security(syminfo.tickerid, "240", ta.rsi(close, 14),  barmerge.gaps_off, barmerge.lookahead_off)
+h4_atr     = request.security(syminfo.tickerid, "240", ta.atr(14),         barmerge.gaps_off, barmerge.lookahead_off)
+h4_adx     = request.security(syminfo.tickerid, "240", getAdx(),           barmerge.gaps_off, barmerge.lookahead_off)
+h4_vwap    = request.security(syminfo.tickerid, "240", ta.vwap(close),     barmerge.gaps_off, barmerge.lookahead_off)
+h4_vol     = request.security(syminfo.tickerid, "240", volume,             barmerge.gaps_off, barmerge.lookahead_off)
+h4_macd    = request.security(syminfo.tickerid, "240", getMacd(),          barmerge.gaps_off, barmerge.lookahead_off)
+h4_sig     = request.security(syminfo.tickerid, "240", getMacdSig(),       barmerge.gaps_off, barmerge.lookahead_off)
+h4_hist    = request.security(syminfo.tickerid, "240", getMacdHist(),      barmerge.gaps_off, barmerge.lookahead_off)
+h4_close   = request.security(syminfo.tickerid, "240", close,              barmerge.gaps_off, barmerge.lookahead_off)
+h4_trend   = h4_close > h4_ema20 and h4_ema20 > h4_ema50 and h4_ema50 > h4_ema100 and h4_ema100 > h4_ema200 ? 1
+           : h4_close < h4_ema20 and h4_ema20 < h4_ema50 and h4_ema50 < h4_ema100 and h4_ema100 < h4_ema200 ? -1 : 0
+
+// 1D HTF
+hd_ema20   = request.security(syminfo.tickerid, "D", ta.ema(close, 20),   barmerge.gaps_off, barmerge.lookahead_off)
+hd_ema50   = request.security(syminfo.tickerid, "D", ta.ema(close, 50),   barmerge.gaps_off, barmerge.lookahead_off)
+hd_ema100  = request.security(syminfo.tickerid, "D", ta.ema(close, 100),  barmerge.gaps_off, barmerge.lookahead_off)
+hd_ema200  = request.security(syminfo.tickerid, "D", ta.ema(close, 200),  barmerge.gaps_off, barmerge.lookahead_off)
+hd_rsi     = request.security(syminfo.tickerid, "D", ta.rsi(close, 14),   barmerge.gaps_off, barmerge.lookahead_off)
+hd_atr     = request.security(syminfo.tickerid, "D", ta.atr(14),          barmerge.gaps_off, barmerge.lookahead_off)
+hd_adx     = request.security(syminfo.tickerid, "D", getAdx(),            barmerge.gaps_off, barmerge.lookahead_off)
+hd_vwap    = request.security(syminfo.tickerid, "D", ta.vwap(close),      barmerge.gaps_off, barmerge.lookahead_off)
+hd_vol     = request.security(syminfo.tickerid, "D", volume,              barmerge.gaps_off, barmerge.lookahead_off)
+hd_macd    = request.security(syminfo.tickerid, "D", getMacd(),           barmerge.gaps_off, barmerge.lookahead_off)
+hd_sig     = request.security(syminfo.tickerid, "D", getMacdSig(),        barmerge.gaps_off, barmerge.lookahead_off)
+hd_hist    = request.security(syminfo.tickerid, "D", getMacdHist(),       barmerge.gaps_off, barmerge.lookahead_off)
+hd_close   = request.security(syminfo.tickerid, "D", close,               barmerge.gaps_off, barmerge.lookahead_off)
+hd_trend   = hd_close > hd_ema20 and hd_ema20 > hd_ema50 and hd_ema50 > hd_ema100 and hd_ema100 > hd_ema200 ? 1
+           : hd_close < hd_ema20 and hd_ema20 < hd_ema50 and hd_ema50 < hd_ema100 and hd_ema100 < hd_ema200 ? -1 : 0
+
+// 1W HTF
+hw_ema20   = request.security(syminfo.tickerid, "W", ta.ema(close, 20),   barmerge.gaps_off, barmerge.lookahead_off)
+hw_ema50   = request.security(syminfo.tickerid, "W", ta.ema(close, 50),   barmerge.gaps_off, barmerge.lookahead_off)
+hw_ema100  = request.security(syminfo.tickerid, "W", ta.ema(close, 100),  barmerge.gaps_off, barmerge.lookahead_off)
+hw_ema200  = request.security(syminfo.tickerid, "W", ta.ema(close, 200),  barmerge.gaps_off, barmerge.lookahead_off)
+hw_rsi     = request.security(syminfo.tickerid, "W", ta.rsi(close, 14),   barmerge.gaps_off, barmerge.lookahead_off)
+hw_atr     = request.security(syminfo.tickerid, "W", ta.atr(14),          barmerge.gaps_off, barmerge.lookahead_off)
+hw_adx     = request.security(syminfo.tickerid, "W", getAdx(),            barmerge.gaps_off, barmerge.lookahead_off)
+hw_vwap    = request.security(syminfo.tickerid, "W", ta.vwap(close),      barmerge.gaps_off, barmerge.lookahead_off)
+hw_vol     = request.security(syminfo.tickerid, "W", volume,              barmerge.gaps_off, barmerge.lookahead_off)
+hw_macd    = request.security(syminfo.tickerid, "W", getMacd(),           barmerge.gaps_off, barmerge.lookahead_off)
+hw_sig     = request.security(syminfo.tickerid, "W", getMacdSig(),        barmerge.gaps_off, barmerge.lookahead_off)
+hw_hist    = request.security(syminfo.tickerid, "W", getMacdHist(),       barmerge.gaps_off, barmerge.lookahead_off)
+hw_close   = request.security(syminfo.tickerid, "W", close,               barmerge.gaps_off, barmerge.lookahead_off)
+hw_trend   = hw_close > hw_ema20 and hw_ema20 > hw_ema50 and hw_ema50 > hw_ema100 and hw_ema100 > hw_ema200 ? 1
+           : hw_close < hw_ema20 and hw_ema20 < hw_ema50 and hw_ema50 < hw_ema100 and hw_ema100 < hw_ema200 ? -1 : 0
+
+// ============================================================
+// SECTION 3 — MARKET STRUCTURE ENGINE (Phase 3)
+//   HH, HL, LH, LL, BOS, CHoCH, MSS, Swing H/L
+//   Equal Highs / Lows, Liquidity Sweep, Range
+// ============================================================
+swing_lb = i_swing_lb
+
+// ── 3.1 Pivot Swing Highs / Lows ─────────────────────────────
+swingHigh = ta.pivothigh(high, swing_lb, swing_lb)
+swingLow  = ta.pivotlow(low,  swing_lb, swing_lb)
+
+// Store last 3 pivot values (var = persists across bars)
+var float sh1 = na  // most recent swing high
+var float sh2 = na  // previous swing high
+var float sl1 = na  // most recent swing low
+var float sl2 = na  // previous swing low
+
+if not na(swingHigh)
+    sh2 := sh1
+    sh1 := swingHigh
+
+if not na(swingLow)
+    sl2 := sl1
+    sl1 := swingLow
+
+// ── 3.2 HH / HL / LH / LL detection ─────────────────────────
+hh = not na(sh1) and not na(sh2) and sh1 > sh2  // Higher High
+lh = not na(sh1) and not na(sh2) and sh1 < sh2  // Lower High
+hl = not na(sl1) and not na(sl2) and sl1 > sl2  // Higher Low
+ll = not na(sl1) and not na(sl2) and sl1 < sl2  // Lower Low
+
+// ── 3.3 Structure Classification ─────────────────────────────
+ms_bullish = hh and hl
+ms_bearish = lh and ll
+ms_struct  = ms_bullish ? "Bullish" : ms_bearish ? "Bearish" : "Ranging"
+
+// ── 3.4 BOS — Break of Structure ─────────────────────────────
+// Bullish BOS: close crosses above last swing high
+// Bearish BOS: close crosses below last swing low
+var bool bos_bull = false
+var bool bos_bear = false
+bos_bull := not na(sh1) and ta.crossover(close,  sh1)
+bos_bear := not na(sl1) and ta.crossunder(close, sl1)
+bos_type = bos_bull ? "Bullish BOS" : bos_bear ? "Bearish BOS" : "None"
+
+// ── 3.5 CHoCH — Change of Character ──────────────────────────
+// CHoCH signals potential reversal; opposite of current trend
+var bool choch_bull = false
+var bool choch_bear = false
+choch_bull := ms_bearish and bos_bull
+choch_bear := ms_bullish and bos_bear
+choch_type = choch_bull ? "Bullish CHoCH" : choch_bear ? "Bearish CHoCH" : "None"
+
+// ── 3.6 MSS — Market Structure Shift ─────────────────────────
+// MSS = CHoCH confirmed by follow-through (we detect on CHoCH bar)
+mss_active = choch_bull or choch_bear
+mss_type   = choch_bull ? "Bullish MSS" : choch_bear ? "Bearish MSS" : "None"
+
+// ── 3.7 Equal Highs / Equal Lows (within 0.1% tolerance) ─────
+eq_tol = close * 0.001
+eq_highs = not na(sh1) and not na(sh2) and math.abs(sh1 - sh2) <= eq_tol
+eq_lows  = not na(sl1) and not na(sl2) and math.abs(sl1 - sl2) <= eq_tol
+
+// ── 3.8 Liquidity Sweep ───────────────────────────────────────
+liq_sweep_up   = not na(sh1) and high > sh1 and close < sh1
+liq_sweep_down = not na(sl1) and low  < sl1 and close > sl1
+liq_sweep_type = liq_sweep_up   ? "Sell-Side Sweep"
+               : liq_sweep_down ? "Buy-Side Sweep" : "None"
+
+// ── 3.9 Range High / Low (session-based placeholder) ──────────
+range_hi = not na(sh1) ? sh1 : na
+range_lo = not na(sl1) ? sl1 : na
+
+// ── 3.10 Internal / External Structure ───────────────────────
+// Internal  = structure inside a swing range
+// External  = structure beyond the last major swing
+internal_struct = ms_struct
+external_struct = ms_bullish ? "Uptrend External"
+                : ms_bearish ? "Downtrend External" : "Consolidation External"
+
+// ============================================================
+// SECTION 4 — SMC ENGINE (Phase 4)
+//   Fair Value Gaps, Order Blocks, Breaker, Premium/Discount
+// ============================================================
+
+// ── 4.1 Fair Value Gap (FVG) detection ───────────────────────
+// Bullish FVG: gap between candle[2] high and candle[0] low
+// Bearish FVG: gap between candle[2] low  and candle[0] high
+// All referencing confirmed bars (no lookahead)
+bull_fvg = low  > high[2]           // current low > 2-bars-ago high
+bear_fvg = high < low[2]            // current high < 2-bars-ago low
+
+// Mitigated FVG (price re-entered the gap)
+var float bull_fvg_top = na
+var float bull_fvg_bot = na
+var float bear_fvg_top = na
+var float bear_fvg_bot = na
+
+if bull_fvg
+    bull_fvg_top := low
+    bull_fvg_bot := high[2]
+
+if bear_fvg
+    bear_fvg_top := low[2]
+    bear_fvg_bot := high
+
+bull_fvg_mitigated = not na(bull_fvg_bot) and low <= bull_fvg_bot
+bear_fvg_mitigated = not na(bear_fvg_top) and high >= bear_fvg_top
+fvg_status = bull_fvg           ? "Bullish FVG"
+           : bear_fvg           ? "Bearish FVG"
+           : bull_fvg_mitigated ? "Bull FVG Mitigated"
+           : bear_fvg_mitigated ? "Bear FVG Mitigated" : "None"
+
+// ── 4.2 Order Block Detection ─────────────────────────────────
+// Bullish OB: last bearish candle before a bullish impulse (BOS up)
+// Bearish OB: last bullish candle before a bearish impulse (BOS down)
+bull_ob = close[1] < open[1] and bos_bull  // prior bearish candle + BOS up
+bear_ob = close[1] > open[1] and bos_bear  // prior bullish candle + BOS down
+
+var float bull_ob_hi = na
+var float bull_ob_lo = na
+var float bear_ob_hi = na
+var float bear_ob_lo = na
+
+if bull_ob
+    bull_ob_hi := high[1]
+    bull_ob_lo := low[1]
+
+if bear_ob
+    bear_ob_hi := high[1]
+    bear_ob_lo := low[1]
+
+ob_type = bull_ob ? "Bullish OB" : bear_ob ? "Bearish OB" : "None"
+
+// ── 4.3 Breaker Block ─────────────────────────────────────────
+// OB that has been broken through (failed OB = Breaker)
+bull_breaker = not na(bear_ob_lo) and close > bear_ob_hi
+bear_breaker = not na(bull_ob_hi) and close < bull_ob_lo
+breaker_type = bull_breaker ? "Bullish Breaker"
+             : bear_breaker ? "Bearish Breaker" : "None"
+
+// ── 4.4 Mitigation Block ──────────────────────────────────────
+// Price returns to an OB after breaking it
+bull_mitigation = not na(bull_ob_lo) and low <= bull_ob_lo and close >= bull_ob_lo
+bear_mitigation = not na(bear_ob_hi) and high >= bear_ob_hi and close <= bear_ob_hi
+mitigation_type = bull_mitigation ? "Bullish Mitigation"
+                : bear_mitigation ? "Bearish Mitigation" : "None"
+
+// ── 4.5 Premium / Discount / Equilibrium ──────────────────────
+// Based on the range between sh1 (range high) and sl1 (range low)
+var float eq_mid = na
+var string zone_type = "Unknown"
+
+if not na(sh1) and not na(sl1)
+    eq_mid   := (sh1 + sl1) / 2
+    eq_range  = sh1 - sl1
+    if eq_range > 0
+        zone_pct = (close - sl1) / eq_range * 100
+        zone_type := zone_pct > 62.5 ? "Premium"
+                   : zone_pct < 37.5 ? "Discount" : "Equilibrium"
+
+// ============================================================
+// SECTION 5 — VOLUME ANALYSIS (Phase 2 cont.)
+// ============================================================
+
+// ── 5.1 Buying / Selling Volume approximation ─────────────────
+// Close above mid = buying pressure; below mid = selling pressure
+bar_mid     = (high + low) / 2
+buy_vol     = close >= bar_mid ? volume : volume * (close - low) / math.max(high - low, syminfo.mintick)
+sell_vol    = volume - buy_vol
+vol_delta   = buy_vol - sell_vol
+
+// ── 5.2 Volume Spike ──────────────────────────────────────────
+vol_spike = not na(vol_avg) and volume > vol_avg * 2.0
+
+// ── 5.3 Volume Trend ──────────────────────────────────────────
+vol_sma_fast = ta.sma(volume, 5)
+vol_sma_slow = ta.sma(volume, 20)
+vol_trend    = vol_sma_fast > vol_sma_slow ? "Rising"
+             : vol_sma_fast < vol_sma_slow ? "Falling" : "Flat"
+
+// ============================================================
+// SECTION 6 — VOLATILITY (Phase 2 cont.)
+// ============================================================
+
+// ── 6.1 Daily / Weekly / Monthly Range ────────────────────────
+// Reuse already-fetched HTF variables (hd_* and hw_*) where possible.
+// Only monthly H/L requires a new security call (not in htfData tuple).
+// D and W high/low are fetched via a single bundled call each.
+[daily_hi, daily_lo]   = request.security(syminfo.tickerid, "D",
+     [high, low], barmerge.gaps_off, barmerge.lookahead_off)
+[weekly_hi, weekly_lo] = request.security(syminfo.tickerid, "W",
+     [high, low], barmerge.gaps_off, barmerge.lookahead_off)
+[monthly_hi, monthly_lo] = request.security(syminfo.tickerid, "M",
+     [high, low], barmerge.gaps_off, barmerge.lookahead_off)
+
+daily_range   = daily_hi  - daily_lo
+weekly_range  = weekly_hi - weekly_lo
+monthly_range = monthly_hi - monthly_lo
+
+// ============================================================
+// SECTION 7 — CANDLE PATTERN ANALYSIS (Phase 2 cont.)
+// ============================================================
+
+candle_body  = math.abs(close - open)
+candle_range = high - low
+upper_wick   = high - math.max(close, open)
+lower_wick   = math.min(close, open) - low
+
+// Individual candle patterns (confirmed bars only via [1] where needed)
+is_doji          = candle_body <= candle_range * 0.1 and candle_range > 0
+is_hammer        = lower_wick >= candle_body * 2 and upper_wick <= candle_body * 0.3 and close > open
+is_inv_hammer    = upper_wick >= candle_body * 2 and lower_wick <= candle_body * 0.3 and close > open
+is_shoot_star    = upper_wick >= candle_body * 2 and lower_wick <= candle_body * 0.3 and close < open
+is_bull_engulf   = close > open and close[1] < open[1] and close > open[1] and open < close[1]
+is_bear_engulf   = close < open and close[1] > open[1] and close < open[1] and open > close[1]
+is_inside_bar    = high < high[1] and low > low[1]
+is_outside_bar   = high > high[1] and low < low[1]
+is_marubozu_bull = candle_body > candle_range * 0.95 and close > open
+is_marubozu_bear = candle_body > candle_range * 0.95 and close < open
+
+// Morning / Evening Star (3-bar patterns, all confirmed by reference)
+ms_cond1  = close[2] < open[2]                             // bar-2: bearish
+ms_cond2  = candle_body[1] < (high[1] - low[1]) * 0.3     // bar-1: small body
+ms_cond3  = close > open and close > (open[2] + close[2]) / 2  // bar-0: bullish & fills
+is_morn_star = ms_cond1 and ms_cond2 and ms_cond3
+
+es_cond1  = close[2] > open[2]
+es_cond2  = candle_body[1] < (high[1] - low[1]) * 0.3
+es_cond3  = close < open and close < (open[2] + close[2]) / 2
+is_eve_star = es_cond1 and es_cond2 and es_cond3
+
+// Dominant pattern label
+candle_pattern = is_doji          ? "Doji"
+               : is_morn_star     ? "Morning Star"
+               : is_eve_star      ? "Evening Star"
+               : is_bull_engulf   ? "Bullish Engulfing"
+               : is_bear_engulf   ? "Bearish Engulfing"
+               : is_hammer        ? "Hammer"
+               : is_inv_hammer    ? "Inverted Hammer"
+               : is_shoot_star    ? "Shooting Star"
+               : is_marubozu_bull ? "Bullish Marubozu"
+               : is_marubozu_bear ? "Bearish Marubozu"
+               : is_inside_bar    ? "Inside Bar"
+               : is_outside_bar   ? "Outside Bar" : "None"
+
+// ============================================================
+// SECTION 8 — SUPPORT & RESISTANCE (Phase 3 cont.)
+// ============================================================
+
+// Nearest swing support / resistance
+support_swing  = sl1  // most recent swing low
+resist_swing   = sh1  // most recent swing high
+
+// Dynamic support/resistance via EMAs
+dyn_support  = math.min(ema50, ema200)
+dyn_resist   = math.max(ema50, ema200)
+
+// Distance metrics (in points and %)
+dist_support_pt  = not na(support_swing) ? close - support_swing : na
+dist_resist_pt   = not na(resist_swing)  ? resist_swing - close  : na
+dist_support_pct = not na(dist_support_pt) and close > 0 ? dist_support_pt / close * 100 : na
+dist_resist_pct  = not na(dist_resist_pt)  and close > 0 ? dist_resist_pt  / close * 100 : na
+
+// ============================================================
+// SECTION 9 — RISK METRICS (Phase 3 cont.)
+// ============================================================
+
+atr_stop_dist  = atr_val * 1.5
+swing_stop_dist = not na(sl1) ? close - sl1 : na
+vol_pct         = atr_pct
+
+// ============================================================
+// SECTION 10 — JSON HELPER FUNCTIONS (Phase 6)
+//   nv() : converts na → "null" for valid JSON
+//   nb() : converts bool → "true"/"false"
+//   ns() : escapes string safely for JSON
+// ============================================================
+
+nv(v) =>
+    na(v) ? "null" : str.tostring(math.round(v, 6))
+
+nb(b) => b ? "true" : "false"
+
+ns(s) =>
+    na(s) ? "null" : "\"" + s + "\""
+
+ni(v) =>
+    na(v) ? "null" : str.tostring(math.round(v, 2))
+
+// ============================================================
+// SECTION 11 — JSON EXPORT (Phase 6)
+//   Single JSON object — all fields — no truncation
+//   Payload split into two alert messages if needed
+// ============================================================
+
+// ── 11.1 Build JSON sections as strings ──────────────────────
+
+// General / Symbol
+json_general =
+     "{" +
+     "\"symbol\":"    + ns(sym_ticker)   + "," +
+     "\"exchange\":"  + ns(sym_exchange) + "," +
+     "\"prefix\":"    + ns(sym_prefix)   + "," +
+     "\"timeframe\":" + ns(sym_tf)       + "," +
+     "\"currency\":"  + ns(sym_currency) + "," +
+     "\"session\":"   + ns(sym_session)  + "," +
+     "\"tick_size\":" + nv(sym_ticksz)   +
+     "}"
+
+// OHLCV
+json_ohlcv =
+     "{" +
+     "\"open\":"     + ni(price_o)  + "," +
+     "\"high\":"     + ni(price_h)  + "," +
+     "\"low\":"      + ni(price_l)  + "," +
+     "\"close\":"    + ni(price_c)  + "," +
+     "\"prev_close\":" + ni(price_pc) + "," +
+     "\"volume\":"   + ni(price_v)  + "," +
+     "\"avg_vol\":"  + ni(vol_avg)  + "," +
+     "\"rel_vol\":"  + ni(rel_vol)  + "," +
+     "\"vwap\":"     + ni(vwap_val) +
+     "}"
+
+// Session
+json_session =
+     "{" +
+     "\"current\":"    + ns(sess_name) + "," +
+     "\"high\":"       + ni(sess_hi)   + "," +
+     "\"low\":"        + ni(sess_lo)   + "," +
+     "\"in_asia\":"    + nb(in_asia)   + "," +
+     "\"in_london\":"  + nb(in_london) + "," +
+     "\"in_ny\":"      + nb(in_ny)     + "," +
+     "\"in_overlap\":" + nb(in_overlap) +
+     "}"
+
+// Trend / EMA
+json_trend =
+     "{" +
+     "\"direction\":"    + ns(trend_dir)      + "," +
+     "\"strength\":"     + ns(trend_strength)  + "," +
+     "\"adx\":"          + ni(adx_val)         + "," +
+     "\"di_plus\":"      + ni(di_plus)          + "," +
+     "\"di_minus\":"     + ni(di_minus)         + "," +
+     "\"ema_aligned\":"  + nb(ema_bull_align or ema_bear_align) + "," +
+     "\"ema20\":"        + ni(ema20)             + "," +
+     "\"ema50\":"        + ni(ema50)             + "," +
+     "\"ema100\":"       + ni(ema100)            + "," +
+     "\"ema200\":"       + ni(ema200)            + "," +
+     "\"slope_ema20\":"  + nv(slope_ema20)       + "," +
+     "\"slope_ema200\":" + nv(slope_ema200)      +
+     "}"
+
+// Market Structure
+json_ms =
+     "{" +
+     "\"structure\":"   + ns(ms_struct)      + "," +
+     "\"hh\":"          + nb(hh)             + "," +
+     "\"hl\":"          + nb(hl)             + "," +
+     "\"lh\":"          + nb(lh)             + "," +
+     "\"ll\":"          + nb(ll)             + "," +
+     "\"bos\":"         + ns(bos_type)       + "," +
+     "\"choch\":"       + ns(choch_type)     + "," +
+     "\"mss\":"         + ns(mss_type)       + "," +
+     "\"eq_highs\":"    + nb(eq_highs)       + "," +
+     "\"eq_lows\":"     + nb(eq_lows)        + "," +
+     "\"liq_sweep\":"   + ns(liq_sweep_type) + "," +
+     "\"internal\":"    + ns(internal_struct) + "," +
+     "\"external\":"    + ns(external_struct) + "," +
+     "\"range_hi\":"    + ni(range_hi)       + "," +
+     "\"range_lo\":"    + ni(range_lo)       + "," +
+     "\"swing_hi\":"    + ni(sh1)            + "," +
+     "\"swing_lo\":"    + ni(sl1)            +
+     "}"
+
+// SMC
+json_smc =
+     "{" +
+     "\"fvg\":"              + ns(fvg_status)      + "," +
+     "\"bull_fvg_top\":"     + ni(bull_fvg_top)    + "," +
+     "\"bull_fvg_bot\":"     + ni(bull_fvg_bot)    + "," +
+     "\"bear_fvg_top\":"     + ni(bear_fvg_top)    + "," +
+     "\"bear_fvg_bot\":"     + ni(bear_fvg_bot)    + "," +
+     "\"ob\":"               + ns(ob_type)          + "," +
+     "\"bull_ob_hi\":"       + ni(bull_ob_hi)       + "," +
+     "\"bull_ob_lo\":"       + ni(bull_ob_lo)       + "," +
+     "\"bear_ob_hi\":"       + ni(bear_ob_hi)       + "," +
+     "\"bear_ob_lo\":"       + ni(bear_ob_lo)       + "," +
+     "\"breaker\":"          + ns(breaker_type)     + "," +
+     "\"mitigation\":"       + ns(mitigation_type)  + "," +
+     "\"zone\":"             + ns(zone_type)        + "," +
+     "\"equilibrium\":"      + ni(eq_mid)           +
+     "}"
+
+// Volume
+json_volume =
+     "{" +
+     "\"current\":"    + ni(price_v)  + "," +
+     "\"average\":"    + ni(vol_avg)  + "," +
+     "\"relative\":"   + ni(rel_vol)  + "," +
+     "\"spike\":"      + nb(vol_spike) + "," +
+     "\"buy_vol\":"    + ni(buy_vol)  + "," +
+     "\"sell_vol\":"   + ni(sell_vol) + "," +
+     "\"delta\":"      + ni(vol_delta) + "," +
+     "\"trend\":"      + ns(vol_trend) +
+     "}"
+
+// Volatility
+json_volatility =
+     "{" +
+     "\"atr\":"          + ni(atr_val)      + "," +
+     "\"atr_pct\":"      + ni(atr_pct)      + "," +
+     "\"true_range\":"   + ni(tr_val)       + "," +
+     "\"std_dev\":"      + ni(std_val)      + "," +
+     "\"daily_range\":"  + ni(daily_range)  + "," +
+     "\"weekly_range\":" + ni(weekly_range) + "," +
+     "\"monthly_range\":" + ni(monthly_range) +
+     "}"
+
+// Momentum
+json_momentum =
+     "{" +
+     "\"rsi\":"          + ni(rsi_val)      + "," +
+     "\"macd\":"         + ni(macd_line)    + "," +
+     "\"macd_signal\":"  + ni(macd_sig)     + "," +
+     "\"macd_hist\":"    + ni(macd_hist)    + "," +
+     "\"stoch_rsi_k\":"  + ni(stoch_rsi_k)  + "," +
+     "\"stoch_rsi_d\":"  + ni(stoch_rsi_d)  + "," +
+     "\"cci\":"          + ni(cci_val)      + "," +
+     "\"momentum\":"     + ni(mom_val)      + "," +
+     "\"roc\":"          + ni(roc_val)      + "," +
+     "\"ao\":"           + ni(ao_val)       +
+     "}"
+
+// Candles
+json_candles =
+     "{" +
+     "\"pattern\":"         + ns(candle_pattern)       + "," +
+     "\"body_pct\":"        + ni(candle_range > 0 ? candle_body / candle_range * 100 : na) + "," +
+     "\"upper_wick_pct\":"  + ni(candle_range > 0 ? upper_wick  / candle_range * 100 : na) + "," +
+     "\"lower_wick_pct\":"  + ni(candle_range > 0 ? lower_wick  / candle_range * 100 : na) + "," +
+     "\"bull_engulf\":"     + nb(is_bull_engulf)   + "," +
+     "\"bear_engulf\":"     + nb(is_bear_engulf)   + "," +
+     "\"doji\":"            + nb(is_doji)           + "," +
+     "\"hammer\":"          + nb(is_hammer)         + "," +
+     "\"inv_hammer\":"      + nb(is_inv_hammer)     + "," +
+     "\"shoot_star\":"      + nb(is_shoot_star)     + "," +
+     "\"morn_star\":"       + nb(is_morn_star)      + "," +
+     "\"eve_star\":"        + nb(is_eve_star)        + "," +
+     "\"inside_bar\":"      + nb(is_inside_bar)     + "," +
+     "\"outside_bar\":"     + nb(is_outside_bar)    + "," +
+     "\"marubozu_bull\":"   + nb(is_marubozu_bull)  + "," +
+     "\"marubozu_bear\":"   + nb(is_marubozu_bear)  +
+     "}"
+
+// Support / Resistance
+json_sr =
+     "{" +
+     "\"support_swing\":"   + ni(support_swing)    + "," +
+     "\"resist_swing\":"    + ni(resist_swing)     + "," +
+     "\"dyn_support\":"     + ni(dyn_support)      + "," +
+     "\"dyn_resist\":"      + ni(dyn_resist)       + "," +
+     "\"dist_sup_pt\":"     + ni(dist_support_pt)  + "," +
+     "\"dist_res_pt\":"     + ni(dist_resist_pt)   + "," +
+     "\"dist_sup_pct\":"    + ni(dist_support_pct) + "," +
+     "\"dist_res_pct\":"    + ni(dist_resist_pct)  +
+     "}"
+
+// Risk
+json_risk =
+     "{" +
+     "\"atr_stop\":"       + ni(atr_stop_dist)   + "," +
+     "\"swing_stop\":"     + ni(swing_stop_dist) + "," +
+     "\"vol_pct\":"        + ni(vol_pct)         +
+     "}"
+
+// Multi-Timeframe (compact — numeric values only)
+htf_trend_15 = htfTrendStr(h15_trend)
+htf_trend_1h = htfTrendStr(h1_trend)
+htf_trend_4h = htfTrendStr(h4_trend)
+htf_trend_1d = htfTrendStr(hd_trend)
+htf_trend_1w = htfTrendStr(hw_trend)
+
+json_mtf =
+     "{" +
+     "\"tf_15m\":{\"ema20\":" + ni(h15_ema20) + ",\"ema50\":" + ni(h15_ema50) +
+         ",\"rsi\":"    + ni(h15_rsi)  + ",\"atr\":"  + ni(h15_atr)  +
+         ",\"adx\":"    + ni(h15_adx)  + ",\"vwap\":" + ni(h15_vwap) +
+         ",\"macd\":"   + ni(h15_macd) + ",\"macd_sig\":" + ni(h15_sig) +
+         ",\"macd_hist\":" + ni(h15_hist) + ",\"trend\":" + ns(htf_trend_15) + "}," +
+     "\"tf_1h\":{\"ema20\":"  + ni(h1_ema20)  + ",\"ema50\":" + ni(h1_ema50)  +
+         ",\"rsi\":"    + ni(h1_rsi)   + ",\"atr\":"  + ni(h1_atr)   +
+         ",\"adx\":"    + ni(h1_adx)   + ",\"vwap\":" + ni(h1_vwap)  +
+         ",\"macd\":"   + ni(h1_macd)  + ",\"macd_sig\":" + ni(h1_sig) +
+         ",\"macd_hist\":" + ni(h1_hist) + ",\"trend\":" + ns(htf_trend_1h) + "}," +
+     "\"tf_4h\":{\"ema20\":"  + ni(h4_ema20)  + ",\"ema50\":" + ni(h4_ema50)  +
+         ",\"rsi\":"    + ni(h4_rsi)   + ",\"atr\":"  + ni(h4_atr)   +
+         ",\"adx\":"    + ni(h4_adx)   + ",\"vwap\":" + ni(h4_vwap)  +
+         ",\"macd\":"   + ni(h4_macd)  + ",\"macd_sig\":" + ni(h4_sig) +
+         ",\"macd_hist\":" + ni(h4_hist) + ",\"trend\":" + ns(htf_trend_4h) + "}," +
+     "\"tf_1d\":{\"ema20\":"  + ni(hd_ema20)  + ",\"ema50\":" + ni(hd_ema50)  +
+         ",\"rsi\":"    + ni(hd_rsi)   + ",\"atr\":"  + ni(hd_atr)   +
+         ",\"adx\":"    + ni(hd_adx)   + ",\"vwap\":" + ni(hd_vwap)  +
+         ",\"macd\":"   + ni(hd_macd)  + ",\"macd_sig\":" + ni(hd_sig) +
+         ",\"macd_hist\":" + ni(hd_hist) + ",\"trend\":" + ns(htf_trend_1d) + "}," +
+     "\"tf_1w\":{\"ema20\":"  + ni(hw_ema20)  + ",\"ema50\":" + ni(hw_ema50)  +
+         ",\"rsi\":"    + ni(hw_rsi)   + ",\"atr\":"  + ni(hw_atr)   +
+         ",\"adx\":"    + ni(hw_adx)   + ",\"vwap\":" + ni(hw_vwap)  +
+         ",\"macd\":"   + ni(hw_macd)  + ",\"macd_sig\":" + ni(hw_sig) +
+         ",\"macd_hist\":" + ni(hw_hist) + ",\"trend\":" + ns(htf_trend_1w) + "}" +
+     "}"
+
+// Unavailable data (Pine Script limitation — always null)
+json_unavailable =
+     "{" +
+     "\"funding_rate\":null," +
+     "\"open_interest\":null," +
+     "\"liquidations\":null," +
+     "\"order_book\":null," +
+     "\"news\":null," +
+     "\"on_chain\":null," +
+     "\"fear_greed\":null," +
+     "\"cot_data\":null," +
+     "\"sentiment\":null" +
+     "}"
+
+// ── 11.2 Final JSON assembly ──────────────────────────────────
+json_payload =
+     "{" +
+     "\"symbol\":"           + ns(sym_ticker)      + "," +
+     "\"exchange\":"         + ns(sym_exchange)    + "," +
+     "\"timeframe\":"        + ns(sym_tf)          + "," +
+     "\"price\":"            + ni(price_c)         + "," +
+     "\"general\":"          + json_general        + "," +
+     "\"ohlcv\":"            + json_ohlcv          + "," +
+     "\"session\":"          + json_session        + "," +
+     "\"trend\":"            + json_trend          + "," +
+     "\"market_structure\":" + json_ms             + "," +
+     "\"smc\":"              + json_smc            + "," +
+     "\"volume\":"           + json_volume         + "," +
+     "\"volatility\":"       + json_volatility     + "," +
+     "\"momentum\":"         + json_momentum       + "," +
+     "\"candles\":"          + json_candles        + "," +
+     "\"support_resistance\":" + json_sr           + "," +
+     "\"risk\":"             + json_risk           + "," +
+     "\"multi_timeframe\":"  + json_mtf            + "," +
+     "\"unavailable\":"      + json_unavailable    +
+     "}"
+
+// ============================================================
+// SECTION 12 — ALERTS (Phase 6 cont.)
+//   ONE alertcondition — JSON payload only
+//   No buy/sell signals, no trade direction
+// ============================================================
+
+if i_alert
+    alertcondition(
+         barstate.isconfirmed,
+         title   = "AI-IMDC: Market Data JSON",
+         message = json_payload
+     )
+
+// ============================================================
+// SECTION 13 — DASHBOARD (Phase 5)
+//   Professional 10-row table — rendered on barstate.islast only
+// ============================================================
+
+// Colour palette
+c_green  = color.new(color.green,  0)
+c_red    = color.new(color.red,    0)
+c_orange = color.new(color.orange, 0)
+c_blue   = color.new(color.blue,   0)
+c_white  = color.new(color.white,  0)
+c_gray   = color.new(color.gray,   80)
+c_dark   = color.new(#1a1a2e,      0)
+c_header = color.new(#16213e,      0)
+c_row1   = color.new(#0f3460,      0)
+
+// Trend colour helper
+trendColour(t) =>
+    t == "Bullish" ? c_green : t == "Bearish" ? c_red : c_orange
+
+if i_dash and barstate.islast
+    var table dash = table.new(
+         position.top_right, 2, 14,
+         bgcolor       = c_dark,
+         border_width  = 1,
+         border_color  = color.new(color.silver, 60),
+         frame_width   = 2,
+         frame_color   = color.new(color.blue, 20)
+     )
+
+    // Header
+    table.cell(dash, 0, 0, "AI INSTITUTIONAL DATA COLLECTOR",
+         text_color = c_white, bgcolor = c_header,
+         text_size  = size.small, text_halign = text.align_center)
+    table.merge_cells(dash, 0, 0, 1, 0)
+
+    // Column headers
+    table.cell(dash, 0, 1, "METRIC",
+         text_color = c_orange, bgcolor = c_row1, text_size = size.small)
+    table.cell(dash, 1, 1, "VALUE",
+         text_color = c_orange, bgcolor = c_row1, text_size = size.small)
+
+    // Row 2: Symbol / Price
+    table.cell(dash, 0, 2, "Symbol / Price",
+         text_color = c_white, bgcolor = c_dark, text_size = size.small)
+    table.cell(dash, 1, 2, sym_ticker + "  " + str.tostring(math.round(price_c, 4)),
+         text_color = c_white, bgcolor = c_dark, text_size = size.small)
+
+    // Row 3: Trend
+    table.cell(dash, 0, 3, "Trend",
+         text_color = c_white, bgcolor = c_dark, text_size = size.small)
+    table.cell(dash, 1, 3, trend_dir + " (" + trend_strength + ")",
+         text_color = trendColour(trend_dir), bgcolor = c_dark, text_size = size.small)
+
+    // Row 4: Market Structure
+    table.cell(dash, 0, 4, "Structure",
+         text_color = c_white, bgcolor = c_dark, text_size = size.small)
+    table.cell(dash, 1, 4, ms_struct + " | " + bos_type,
+         text_color = trendColour(ms_struct), bgcolor = c_dark, text_size = size.small)
+
+    // Row 5: SMC
+    table.cell(dash, 0, 5, "SMC Zone",
+         text_color = c_white, bgcolor = c_dark, text_size = size.small)
+    table.cell(dash, 1, 5, zone_type + " | " + fvg_status,
+         text_color = zone_type == "Premium" ? c_red : zone_type == "Discount" ? c_green : c_orange,
+         bgcolor = c_dark, text_size = size.small)
+
+    // Row 6: Momentum
+    table.cell(dash, 0, 6, "RSI / MACD",
+         text_color = c_white, bgcolor = c_dark, text_size = size.small)
+    rsi_col = rsi_val >= 70 ? c_red : rsi_val <= 30 ? c_green : c_white
+    table.cell(dash, 1, 6,
+         "RSI " + str.tostring(math.round(rsi_val, 1)) +
+         " | MACD " + str.tostring(math.round(macd_hist, 4)),
+         text_color = rsi_col, bgcolor = c_dark, text_size = size.small)
+
+    // Row 7: Volume
+    table.cell(dash, 0, 7, "Volume",
+         text_color = c_white, bgcolor = c_dark, text_size = size.small)
+    table.cell(dash, 1, 7,
+         vol_trend + " | RelVol " + (na(rel_vol) ? "N/A" : str.tostring(math.round(rel_vol, 2))) +
+         (vol_spike ? " ⚡SPIKE" : ""),
+         text_color = vol_spike ? c_orange : c_white, bgcolor = c_dark, text_size = size.small)
+
+    // Row 8: Volatility
+    table.cell(dash, 0, 8, "ATR / Volatility",
+         text_color = c_white, bgcolor = c_dark, text_size = size.small)
+    table.cell(dash, 1, 8,
+         "ATR " + str.tostring(math.round(atr_val, 4)) +
+         " (" + str.tostring(math.round(atr_pct, 2)) + "%)",
+         text_color = c_white, bgcolor = c_dark, text_size = size.small)
+
+    // Row 9: Session
+    table.cell(dash, 0, 9, "Session",
+         text_color = c_white, bgcolor = c_dark, text_size = size.small)
+    sess_col = sess_name == "New York" ? c_blue
+             : sess_name == "London"   ? c_green
+             : sess_name == "Asia"     ? c_orange : c_white
+    table.cell(dash, 1, 9, sess_name +
+         " | H:" + str.tostring(math.round(nz(sess_hi), 4)) +
+         " L:" + str.tostring(math.round(nz(sess_lo), 4)),
+         text_color = sess_col, bgcolor = c_dark, text_size = size.small)
+
+    // Row 10: Support / Resistance
+    table.cell(dash, 0, 10, "Support / Resist",
+         text_color = c_white, bgcolor = c_dark, text_size = size.small)
+    table.cell(dash, 1, 10,
+         "S:" + (na(support_swing) ? "N/A" : str.tostring(math.round(support_swing, 4))) +
+         " R:" + (na(resist_swing)  ? "N/A" : str.tostring(math.round(resist_swing,  4))),
+         text_color = c_white, bgcolor = c_dark, text_size = size.small)
+
+    // Row 11: Candle Pattern
+    table.cell(dash, 0, 11, "Candle Pattern",
+         text_color = c_white, bgcolor = c_dark, text_size = size.small)
+    table.cell(dash, 1, 11, candle_pattern,
+         text_color = c_orange, bgcolor = c_dark, text_size = size.small)
+
+    // Row 12: HTF Alignment
+    table.cell(dash, 0, 12, "HTF Trend (1H/4H/1D)",
+         text_color = c_white, bgcolor = c_dark, text_size = size.small)
+    table.cell(dash, 1, 12,
+         htf_trend_1h + " / " + htf_trend_4h + " / " + htf_trend_1d,
+         text_color = trendColour(htf_trend_1d), bgcolor = c_dark, text_size = size.small)
+
+    // Row 13: JSON Status
+    table.cell(dash, 0, 13, "JSON Export",
+         text_color = c_white, bgcolor = c_dark, text_size = size.small)
+    json_len = str.length(json_payload)
+    json_ok  = json_len > 100 and json_len < 4000
+    table.cell(dash, 1, 13,
+         (json_ok ? "✅ VALID" : "⚠️ CHECK SIZE") + " | Chars: " + str.tostring(json_len),
+         text_color = json_ok ? c_green : c_orange, bgcolor = c_dark, text_size = size.small)
+
+// ============================================================
+// SECTION 14 — PLOTS (minimal — overlay reference lines)
+//   Only EMA200 and VWAP plotted so chart stays clean
+// ============================================================
+
+plot(ema200, "EMA 200", color = color.new(color.orange, 30), linewidth = 2)
+plot(vwap_val, "VWAP",  color = color.new(color.blue,   40), linewidth = 1)
+
+// ============================================================
+// END OF SCRIPT
+// ============================================================

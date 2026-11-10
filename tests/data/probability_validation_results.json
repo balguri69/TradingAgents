@@ -1,0 +1,907 @@
+{
+  "total_datasets": 45,
+  "total_predictions_evaluated": 39448,
+  "runtime_seconds": 5.391710999999987,
+  "horizons": {
+    "h5": {
+      "overall_accuracy": 35.018251875887245,
+      "directional_accuracy": 49.01967213114754,
+      "directional_samples": 30500,
+      "confusion_matrix": {
+        "NEUTRAL": {
+          "NEUTRAL": 5732,
+          "BEARISH": 5233,
+          "BULLISH": 5280
+        },
+        "BULLISH": {
+          "BEARISH": 3909,
+          "BULLISH": 3983,
+          "NEUTRAL": 3758
+        },
+        "BEARISH": {
+          "BULLISH": 3859,
+          "NEUTRAL": 3595,
+          "BEARISH": 4099
+        }
+      },
+      "class_metrics": {
+        "BULLISH": {
+          "precision": 34.18884120171674,
+          "recall": 30.353604633440025,
+          "f1": 32.157274341999035,
+          "support": 13122
+        },
+        "BEARISH": {
+          "precision": 35.479961914654204,
+          "recall": 30.956876368854314,
+          "f1": 33.06445107687343,
+          "support": 13241
+        },
+        "NEUTRAL": {
+          "precision": 35.28470298553401,
+          "recall": 43.80588460068781,
+          "f1": 39.086259802250254,
+          "support": 13085
+        }
+      },
+      "confidence_analysis": {
+        "40-50%": {
+          "samples": 1117,
+          "overall_accuracy": 59.44494180841539,
+          "directional_samples": 380,
+          "directional_accuracy": 48.1578947368421
+        },
+        "50-60%": {
+          "samples": 7817,
+          "overall_accuracy": 36.16476909300243,
+          "directional_samples": 1306,
+          "directional_accuracy": 43.03215926493109
+        },
+        "60-70%": {
+          "samples": 11792,
+          "overall_accuracy": 30.95318860244233,
+          "directional_samples": 10092,
+          "directional_accuracy": 47.62187871581451
+        },
+        "70-80%": {
+          "samples": 10629,
+          "overall_accuracy": 35.788879480666104,
+          "directional_samples": 10629,
+          "directional_accuracy": 50.155235675980805
+        },
+        "80-90%": {
+          "samples": 6325,
+          "overall_accuracy": 35.39920948616601,
+          "directional_samples": 6325,
+          "directional_accuracy": 50.43478260869565
+        },
+        "90-100%": {
+          "samples": 1768,
+          "overall_accuracy": 35.633484162895925,
+          "directional_samples": 1768,
+          "directional_accuracy": 49.717194570135746
+        }
+      },
+      "calibration_bullish": {
+        "0-10%": {
+          "count": 6392,
+          "mean_pred_pct": 7.0386404881100475,
+          "realized_pct": 30.96057571964956,
+          "error": 23.921935231539514
+        },
+        "10-20%": {
+          "count": 13590,
+          "mean_pred_pct": 14.722017660044408,
+          "realized_pct": 34.223693892568065,
+          "error": 19.501676232523657
+        },
+        "20-30%": {
+          "count": 4263,
+          "mean_pred_pct": 24.74186488388476,
+          "realized_pct": 31.761670185315506,
+          "error": 7.019805301430747
+        },
+        "30-40%": {
+          "count": 5475,
+          "mean_pred_pct": 35.132889497717265,
+          "realized_pct": 34.66666666666667,
+          "error": 0.4662228310505938
+        },
+        "40-50%": {
+          "count": 4870,
+          "mean_pred_pct": 44.87332238192998,
+          "realized_pct": 34.47638603696099,
+          "error": 10.396936344968992
+        },
+        "50-60%": {
+          "count": 3093,
+          "mean_pred_pct": 54.6581409634662,
+          "realized_pct": 33.23634012285807,
+          "error": 21.421800840608135
+        },
+        "60-70%": {
+          "count": 1700,
+          "mean_pred_pct": 64.6747352941174,
+          "realized_pct": 29.764705882352942,
+          "error": 34.910029411764455
+        },
+        "70-80%": {
+          "count": 65,
+          "mean_pred_pct": 73.29938461538458,
+          "realized_pct": 41.53846153846154,
+          "error": 31.760923076923042
+        }
+      },
+      "calibration_bearish": {
+        "0-10%": {
+          "count": 6433,
+          "mean_pred_pct": 6.88686771335297,
+          "realized_pct": 32.752992383025024,
+          "error": 25.866124669672054
+        },
+        "10-20%": {
+          "count": 13546,
+          "mean_pred_pct": 14.768073231950725,
+          "realized_pct": 33.12416949653034,
+          "error": 18.35609626457962
+        },
+        "20-30%": {
+          "count": 4172,
+          "mean_pred_pct": 24.888127996165064,
+          "realized_pct": 34.44391179290508,
+          "error": 9.555783796740013
+        },
+        "30-40%": {
+          "count": 5550,
+          "mean_pred_pct": 35.21268468468471,
+          "realized_pct": 32.3963963963964,
+          "error": 2.8162882882883125
+        },
+        "40-50%": {
+          "count": 5325,
+          "mean_pred_pct": 44.924244131455566,
+          "realized_pct": 34.816901408450704,
+          "error": 10.107342723004862
+        },
+        "50-60%": {
+          "count": 3069,
+          "mean_pred_pct": 54.81126425545817,
+          "realized_pct": 33.85467579015966,
+          "error": 20.95658846529851
+        },
+        "60-70%": {
+          "count": 1264,
+          "mean_pred_pct": 64.61964398734176,
+          "realized_pct": 38.13291139240506,
+          "error": 26.486732594936697
+        },
+        "70-80%": {
+          "count": 87,
+          "mean_pred_pct": 72.63505747126436,
+          "realized_pct": 41.37931034482759,
+          "error": 31.255747126436773
+        },
+        "80-90%": {
+          "count": 2,
+          "mean_pred_pct": 80.0,
+          "realized_pct": 50.0,
+          "error": 30.0
+        }
+      },
+      "expected_calibration_error_bull": 15.937867825998728,
+      "expected_calibration_error_bear": 15.842157777327047,
+      "regimes": {
+        "TRENDING": {
+          "samples": 23778,
+          "directional_accuracy": 49.33972579695517
+        },
+        "LOW_VOLATILITY": {
+          "samples": 25611,
+          "directional_accuracy": 48.850103471164736
+        },
+        "RANGING": {
+          "samples": 6722,
+          "directional_accuracy": 47.8875334721809
+        },
+        "HIGH_VOLATILITY": {
+          "samples": 4889,
+          "directional_accuracy": 49.90795663734915
+        }
+      },
+      "asset_classes": {
+        "INDICES": {
+          "samples": 3552,
+          "directional_accuracy": 55.18018018018018
+        },
+        "CRYPTO": {
+          "samples": 7255,
+          "directional_accuracy": 48.1461061337009
+        },
+        "FOREX": {
+          "samples": 11645,
+          "directional_accuracy": 46.251610133104336
+        },
+        "EQUITIES": {
+          "samples": 3486,
+          "directional_accuracy": 52.151462994836486
+        },
+        "COMMODITIES": {
+          "samples": 4562,
+          "directional_accuracy": 50.28496273564226
+        }
+      },
+      "timeframes": {
+        "15m": {
+          "samples": 9732,
+          "directional_accuracy": 50.04110152075627
+        },
+        "1d": {
+          "samples": 3884,
+          "directional_accuracy": 49.845520082389285
+        },
+        "1h": {
+          "samples": 5417,
+          "directional_accuracy": 48.73546243308104
+        },
+        "4h": {
+          "samples": 2253,
+          "directional_accuracy": 49.489569462938306
+        },
+        "5m": {
+          "samples": 9214,
+          "directional_accuracy": 47.64488821358802
+        }
+      },
+      "features_attribution": {
+        "bollinger": {
+          "samples": 3405,
+          "directional_accuracy": 50.4258443465492
+        },
+        "bos": {
+          "samples": 30500,
+          "directional_accuracy": 49.01967213114754
+        },
+        "choch": {
+          "samples": 30222,
+          "directional_accuracy": 49.02058103368407
+        },
+        "ema_alignment": {
+          "samples": 27961,
+          "directional_accuracy": 49.451021065054896
+        },
+        "fvg": {
+          "samples": 1604,
+          "directional_accuracy": 72.31920199501248
+        },
+        "liquidity_sweep": {
+          "samples": 29987,
+          "directional_accuracy": 49.00790342481742
+        },
+        "macd": {
+          "samples": 27961,
+          "directional_accuracy": 49.451021065054896
+        },
+        "order_block": {
+          "samples": 3609,
+          "directional_accuracy": 61.81767802715433
+        },
+        "premium_discount": {
+          "samples": 27592,
+          "directional_accuracy": 49.60858219773848
+        },
+        "rsi": {
+          "samples": 7446,
+          "directional_accuracy": 52.56513564329841
+        },
+        "sma_alignment": {
+          "samples": 27567,
+          "directional_accuracy": 49.42140965647332
+        },
+        "vwap": {
+          "samples": 27140,
+          "directional_accuracy": 49.624170965364776
+        }
+      }
+    },
+    "h10": {
+      "overall_accuracy": 35.66213749746502,
+      "directional_accuracy": 49.58032786885246,
+      "directional_samples": 30500,
+      "confusion_matrix": {
+        "NEUTRAL": {
+          "BEARISH": 5115,
+          "BULLISH": 4989,
+          "NEUTRAL": 6141
+        },
+        "BULLISH": {
+          "BEARISH": 3785,
+          "BULLISH": 3913,
+          "NEUTRAL": 3952
+        },
+        "BEARISH": {
+          "BULLISH": 3859,
+          "NEUTRAL": 3680,
+          "BEARISH": 4014
+        }
+      },
+      "class_metrics": {
+        "BULLISH": {
+          "precision": 33.587982832618025,
+          "recall": 30.663741086121775,
+          "f1": 32.059317520789804,
+          "support": 12761
+        },
+        "BEARISH": {
+          "precision": 34.74422227992729,
+          "recall": 31.08254607402819,
+          "f1": 32.811542077083416,
+          "support": 12914
+        },
+        "NEUTRAL": {
+          "precision": 37.80240073868883,
+          "recall": 44.58723589631888,
+          "f1": 40.91545072956226,
+          "support": 13773
+        }
+      },
+      "confidence_analysis": {
+        "40-50%": {
+          "samples": 1117,
+          "overall_accuracy": 66.96508504923904,
+          "directional_samples": 380,
+          "directional_accuracy": 50.0
+        },
+        "50-60%": {
+          "samples": 7817,
+          "overall_accuracy": 38.90239222208008,
+          "directional_samples": 1306,
+          "directional_accuracy": 43.95099540581929
+        },
+        "60-70%": {
+          "samples": 11792,
+          "overall_accuracy": 31.68249660786974,
+          "directional_samples": 10092,
+          "directional_accuracy": 48.275862068965516
+        },
+        "70-80%": {
+          "samples": 10629,
+          "overall_accuracy": 34.481136513312634,
+          "directional_samples": 10629,
+          "directional_accuracy": 50.26813434942139
+        },
+        "80-90%": {
+          "samples": 6325,
+          "overall_accuracy": 35.541501976284586,
+          "directional_samples": 6325,
+          "directional_accuracy": 51.22529644268775
+        },
+        "90-100%": {
+          "samples": 1768,
+          "overall_accuracy": 35.633484162895925,
+          "directional_samples": 1768,
+          "directional_accuracy": 51.07466063348416
+        }
+      },
+      "calibration_bullish": {
+        "0-10%": {
+          "count": 6392,
+          "mean_pred_pct": 7.0386404881100475,
+          "realized_pct": 30.25657071339174,
+          "error": 23.21793022528169
+        },
+        "10-20%": {
+          "count": 13590,
+          "mean_pred_pct": 14.722017660044408,
+          "realized_pct": 32.987490802060336,
+          "error": 18.265473142015928
+        },
+        "20-30%": {
+          "count": 4263,
+          "mean_pred_pct": 24.74186488388476,
+          "realized_pct": 29.955430448041287,
+          "error": 5.213565564156529
+        },
+        "30-40%": {
+          "count": 5475,
+          "mean_pred_pct": 35.132889497717265,
+          "realized_pct": 34.977168949771695,
+          "error": 0.15572054794557033
+        },
+        "40-50%": {
+          "count": 4870,
+          "mean_pred_pct": 44.87332238192998,
+          "realized_pct": 31.90965092402464,
+          "error": 12.963671457905342
+        },
+        "50-60%": {
+          "count": 3093,
+          "mean_pred_pct": 54.6581409634662,
+          "realized_pct": 33.07468477206596,
+          "error": 21.583456191400245
+        },
+        "60-70%": {
+          "count": 1700,
+          "mean_pred_pct": 64.6747352941174,
+          "realized_pct": 32.0,
+          "error": 32.6747352941174
+        },
+        "70-80%": {
+          "count": 65,
+          "mean_pred_pct": 73.29938461538458,
+          "realized_pct": 47.69230769230769,
+          "error": 25.60707692307689
+        }
+      },
+      "calibration_bearish": {
+        "0-10%": {
+          "count": 6433,
+          "mean_pred_pct": 6.88686771335297,
+          "realized_pct": 30.809886522617752,
+          "error": 23.923018809264782
+        },
+        "10-20%": {
+          "count": 13546,
+          "mean_pred_pct": 14.768073231950725,
+          "realized_pct": 32.01683153698509,
+          "error": 17.248758305034364
+        },
+        "20-30%": {
+          "count": 4172,
+          "mean_pred_pct": 24.888127996165064,
+          "realized_pct": 35.90604026845637,
+          "error": 11.017912272291309
+        },
+        "30-40%": {
+          "count": 5550,
+          "mean_pred_pct": 35.21268468468471,
+          "realized_pct": 32.55855855855856,
+          "error": 2.654126126126151
+        },
+        "40-50%": {
+          "count": 5325,
+          "mean_pred_pct": 44.924244131455566,
+          "realized_pct": 32.35680751173709,
+          "error": 12.567436619718478
+        },
+        "50-60%": {
+          "count": 3069,
+          "mean_pred_pct": 54.81126425545817,
+          "realized_pct": 34.929944607363964,
+          "error": 19.881319648094205
+        },
+        "60-70%": {
+          "count": 1264,
+          "mean_pred_pct": 64.61964398734176,
+          "realized_pct": 36.234177215189874,
+          "error": 28.385466772151887
+        },
+        "70-80%": {
+          "count": 87,
+          "mean_pred_pct": 72.63505747126436,
+          "realized_pct": 42.5287356321839,
+          "error": 30.106321839080458
+        },
+        "80-90%": {
+          "count": 2,
+          "mean_pred_pct": 80.0,
+          "realized_pct": 0.0,
+          "error": 80.0
+        }
+      },
+      "expected_calibration_error_bull": 15.382706601095057,
+      "expected_calibration_error_bear": 15.58612451835321,
+      "regimes": {
+        "TRENDING": {
+          "samples": 23778,
+          "directional_accuracy": 50.00841113634452
+        },
+        "LOW_VOLATILITY": {
+          "samples": 25611,
+          "directional_accuracy": 49.45531217055172
+        },
+        "RANGING": {
+          "samples": 6722,
+          "directional_accuracy": 48.06605177030646
+        },
+        "HIGH_VOLATILITY": {
+          "samples": 4889,
+          "directional_accuracy": 50.235221926774386
+        }
+      },
+      "asset_classes": {
+        "INDICES": {
+          "samples": 3552,
+          "directional_accuracy": 55.884009009009006
+        },
+        "CRYPTO": {
+          "samples": 7255,
+          "directional_accuracy": 47.78773259820813
+        },
+        "FOREX": {
+          "samples": 11645,
+          "directional_accuracy": 47.88321167883212
+        },
+        "EQUITIES": {
+          "samples": 3486,
+          "directional_accuracy": 51.86460126219162
+        },
+        "COMMODITIES": {
+          "samples": 4562,
+          "directional_accuracy": 50.109601052170106
+        }
+      },
+      "timeframes": {
+        "15m": {
+          "samples": 9732,
+          "directional_accuracy": 50.91450883682697
+        },
+        "1d": {
+          "samples": 3884,
+          "directional_accuracy": 50.8496395468589
+        },
+        "1h": {
+          "samples": 5417,
+          "directional_accuracy": 47.97858593317335
+        },
+        "4h": {
+          "samples": 2253,
+          "directional_accuracy": 50.1109631602308
+        },
+        "5m": {
+          "samples": 9214,
+          "directional_accuracy": 48.44801389190362
+        }
+      },
+      "features_attribution": {
+        "bollinger": {
+          "samples": 3405,
+          "directional_accuracy": 52.863436123348016
+        },
+        "bos": {
+          "samples": 30500,
+          "directional_accuracy": 49.58032786885246
+        },
+        "choch": {
+          "samples": 30222,
+          "directional_accuracy": 49.583085169743896
+        },
+        "ema_alignment": {
+          "samples": 27961,
+          "directional_accuracy": 49.93026000500698
+        },
+        "fvg": {
+          "samples": 1604,
+          "directional_accuracy": 78.61596009975062
+        },
+        "liquidity_sweep": {
+          "samples": 29987,
+          "directional_accuracy": 49.531463634241504
+        },
+        "macd": {
+          "samples": 27961,
+          "directional_accuracy": 49.93026000500698
+        },
+        "order_block": {
+          "samples": 3609,
+          "directional_accuracy": 65.5860349127182
+        },
+        "premium_discount": {
+          "samples": 27592,
+          "directional_accuracy": 50.05073934473761
+        },
+        "rsi": {
+          "samples": 7446,
+          "directional_accuracy": 53.4918076819769
+        },
+        "sma_alignment": {
+          "samples": 27567,
+          "directional_accuracy": 49.856712736242606
+        },
+        "vwap": {
+          "samples": 27140,
+          "directional_accuracy": 49.98894620486367
+        }
+      }
+    },
+    "h20": {
+      "overall_accuracy": 34.845873048063275,
+      "directional_accuracy": 50.55737704918033,
+      "directional_samples": 30500,
+      "confusion_matrix": {
+        "NEUTRAL": {
+          "BEARISH": 5414,
+          "BULLISH": 5339,
+          "NEUTRAL": 5492
+        },
+        "BULLISH": {
+          "BEARISH": 3822,
+          "BULLISH": 4164,
+          "NEUTRAL": 3664
+        },
+        "BEARISH": {
+          "BULLISH": 4027,
+          "BEARISH": 4090,
+          "NEUTRAL": 3436
+        }
+      },
+      "class_metrics": {
+        "BULLISH": {
+          "precision": 35.742489270386265,
+          "recall": 30.776053215077603,
+          "f1": 33.07386814932486,
+          "support": 13530
+        },
+        "BEARISH": {
+          "precision": 35.402060070977235,
+          "recall": 30.691880534293865,
+          "f1": 32.879135013465174,
+          "support": 13326
+        },
+        "NEUTRAL": {
+          "precision": 33.80732533087104,
+          "recall": 43.61499364675985,
+          "f1": 38.089953878697514,
+          "support": 12592
+        }
+      },
+      "confidence_analysis": {
+        "40-50%": {
+          "samples": 1117,
+          "overall_accuracy": 62.66786034019696,
+          "directional_samples": 380,
+          "directional_accuracy": 60.526315789473685
+        },
+        "50-60%": {
+          "samples": 7817,
+          "overall_accuracy": 34.74478700268645,
+          "directional_samples": 1306,
+          "directional_accuracy": 44.86983154670751
+        },
+        "60-70%": {
+          "samples": 11792,
+          "overall_accuracy": 29.74898236092266,
+          "directional_samples": 10092,
+          "directional_accuracy": 49.72255251684503
+        },
+        "70-80%": {
+          "samples": 10629,
+          "overall_accuracy": 37.200112898673446,
+          "directional_samples": 10629,
+          "directional_accuracy": 51.867532223163046
+        },
+        "80-90%": {
+          "samples": 6325,
+          "overall_accuracy": 35.55731225296443,
+          "directional_samples": 6325,
+          "directional_accuracy": 50.78260869565218
+        },
+        "90-100%": {
+          "samples": 1768,
+          "overall_accuracy": 35.011312217194565,
+          "directional_samples": 1768,
+          "directional_accuracy": 48.699095022624434
+        }
+      },
+      "calibration_bullish": {
+        "0-10%": {
+          "count": 6392,
+          "mean_pred_pct": 7.0386404881100475,
+          "realized_pct": 33.36983729662077,
+          "error": 26.331196808510725
+        },
+        "10-20%": {
+          "count": 13590,
+          "mean_pred_pct": 14.722017660044408,
+          "realized_pct": 33.81162619573216,
+          "error": 19.089608535687752
+        },
+        "20-30%": {
+          "count": 4263,
+          "mean_pred_pct": 24.74186488388476,
+          "realized_pct": 32.418484635233405,
+          "error": 7.676619751348646
+        },
+        "30-40%": {
+          "count": 5475,
+          "mean_pred_pct": 35.132889497717265,
+          "realized_pct": 36.96803652968036,
+          "error": 1.8351470319630963
+        },
+        "40-50%": {
+          "count": 4870,
+          "mean_pred_pct": 44.87332238192998,
+          "realized_pct": 36.34496919917864,
+          "error": 8.528353182751339
+        },
+        "50-60%": {
+          "count": 3093,
+          "mean_pred_pct": 54.6581409634662,
+          "realized_pct": 33.23634012285807,
+          "error": 21.421800840608135
+        },
+        "60-70%": {
+          "count": 1700,
+          "mean_pred_pct": 64.6747352941174,
+          "realized_pct": 33.11764705882353,
+          "error": 31.557088235293868
+        },
+        "70-80%": {
+          "count": 65,
+          "mean_pred_pct": 73.29938461538458,
+          "realized_pct": 53.84615384615385,
+          "error": 19.453230769230736
+        }
+      },
+      "calibration_bearish": {
+        "0-10%": {
+          "count": 6433,
+          "mean_pred_pct": 6.88686771335297,
+          "realized_pct": 32.7996269236748,
+          "error": 25.91275921032183
+        },
+        "10-20%": {
+          "count": 13546,
+          "mean_pred_pct": 14.768073231950725,
+          "realized_pct": 32.76243909641223,
+          "error": 17.994365864461507
+        },
+        "20-30%": {
+          "count": 4172,
+          "mean_pred_pct": 24.888127996165064,
+          "realized_pct": 35.738255033557046,
+          "error": 10.850127037391982
+        },
+        "30-40%": {
+          "count": 5550,
+          "mean_pred_pct": 35.21268468468471,
+          "realized_pct": 35.04504504504504,
+          "error": 0.16763963963966688
+        },
+        "40-50%": {
+          "count": 5325,
+          "mean_pred_pct": 44.924244131455566,
+          "realized_pct": 34.04694835680751,
+          "error": 10.877295774648054
+        },
+        "50-60%": {
+          "count": 3069,
+          "mean_pred_pct": 54.81126425545817,
+          "realized_pct": 33.75692407950473,
+          "error": 21.054340175953442
+        },
+        "60-70%": {
+          "count": 1264,
+          "mean_pred_pct": 64.61964398734176,
+          "realized_pct": 36.075949367088604,
+          "error": 28.543694620253156
+        },
+        "70-80%": {
+          "count": 87,
+          "mean_pred_pct": 72.63505747126436,
+          "realized_pct": 42.5287356321839,
+          "error": 30.106321839080458
+        },
+        "80-90%": {
+          "count": 2,
+          "mean_pred_pct": 80.0,
+          "realized_pct": 0.0,
+          "error": 80.0
+        }
+      },
+      "expected_calibration_error_bull": 16.051811752179933,
+      "expected_calibration_error_bear": 15.66724396674096,
+      "regimes": {
+        "TRENDING": {
+          "samples": 23778,
+          "directional_accuracy": 50.626629657666754
+        },
+        "LOW_VOLATILITY": {
+          "samples": 25611,
+          "directional_accuracy": 50.53687868494007
+        },
+        "RANGING": {
+          "samples": 6722,
+          "directional_accuracy": 50.31240702171973
+        },
+        "HIGH_VOLATILITY": {
+          "samples": 4889,
+          "directional_accuracy": 50.66475761914502
+        }
+      },
+      "asset_classes": {
+        "INDICES": {
+          "samples": 3552,
+          "directional_accuracy": 58.27702702702703
+        },
+        "CRYPTO": {
+          "samples": 7255,
+          "directional_accuracy": 48.780151619572706
+        },
+        "FOREX": {
+          "samples": 11645,
+          "directional_accuracy": 49.42035208243882
+        },
+        "EQUITIES": {
+          "samples": 3486,
+          "directional_accuracy": 50.54503729202524
+        },
+        "COMMODITIES": {
+          "samples": 4562,
+          "directional_accuracy": 50.28496273564226
+        }
+      },
+      "timeframes": {
+        "15m": {
+          "samples": 9732,
+          "directional_accuracy": 52.147554459515
+        },
+        "1d": {
+          "samples": 3884,
+          "directional_accuracy": 52.2399588053553
+        },
+        "1h": {
+          "samples": 5417,
+          "directional_accuracy": 48.34779398190881
+        },
+        "4h": {
+          "samples": 2253,
+          "directional_accuracy": 49.40079893475366
+        },
+        "5m": {
+          "samples": 9214,
+          "directional_accuracy": 49.75037985673975
+        }
+      },
+      "features_attribution": {
+        "bollinger": {
+          "samples": 3405,
+          "directional_accuracy": 53.30396475770925
+        },
+        "bos": {
+          "samples": 30500,
+          "directional_accuracy": 50.55737704918033
+        },
+        "choch": {
+          "samples": 30222,
+          "directional_accuracy": 50.569121831778176
+        },
+        "ema_alignment": {
+          "samples": 27961,
+          "directional_accuracy": 50.68130610493186
+        },
+        "fvg": {
+          "samples": 1604,
+          "directional_accuracy": 81.48379052369077
+        },
+        "liquidity_sweep": {
+          "samples": 29987,
+          "directional_accuracy": 50.50855370660619
+        },
+        "macd": {
+          "samples": 27961,
+          "directional_accuracy": 50.68130610493186
+        },
+        "order_block": {
+          "samples": 3609,
+          "directional_accuracy": 70.07481296758104
+        },
+        "premium_discount": {
+          "samples": 27592,
+          "directional_accuracy": 50.74659321542476
+        },
+        "rsi": {
+          "samples": 7446,
+          "directional_accuracy": 54.05586892291163
+        },
+        "sma_alignment": {
+          "samples": 27567,
+          "directional_accuracy": 50.600355497515146
+        },
+        "vwap": {
+          "samples": 27140,
+          "directional_accuracy": 50.72586588061901
+        }
+      }
+    }
+  }
+}
